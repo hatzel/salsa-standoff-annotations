@@ -1,7 +1,7 @@
 from lxml import etree
 import itertools
 from collections import defaultdict
-from typing import Set, Tuple, List
+from typing import Set, Tuple, List, Dict
 import json
 
 
@@ -31,9 +31,9 @@ def get_id(item, key="id"):
     split = item.attrib[key].split("_")
     if "s" in split[-1]:
         print("Discarding split")
-        return int(split[-2])
+        return int(split[-2]) - 1
     else:
-        return int(split[-1])
+        return int(split[-1]) - 1
 
 
 def parse_entity(entity, frame, graph):
@@ -59,7 +59,9 @@ def parse_target(target, frame, graph):
     }
 
 
-def sentence_from_tokens(tokens: List[str], pos_list: List[str]) -> Tuple[str, List[Tuple[int, int]]]:
+def sentence_from_tokens(
+    tokens: List[str], pos_list: List[str]
+) -> Tuple[str, List[Tuple[int, int]]]:
     """
     Apply some heuristics to create a sensible text text from the tokens.
 
@@ -76,17 +78,21 @@ def sentence_from_tokens(tokens: List[str], pos_list: List[str]) -> Tuple[str, L
             next_token = None
             next_pos = None
         token_list.append(tuple([len(out), len(out) + len(token)]))
-        if (next_pos in ["$.", "$,"]
-                or token in ["``", "(", "/"]
-                or next_token in ["''", ")", "/"]
-                or next_token is None):
+        if (
+            next_pos in ["$.", "$,"]
+            or token in ["``", "(", "/"]
+            or next_token in ["''", ")", "/"]
+            or next_token is None
+        ):
             out += token
         else:
             out += token + " "
     return out, token_list
 
 
-def text_from_tokens(sentences: List[List[str]], pos_lists: List[List[str]]) -> Tuple[str, List[Tuple[int, int]]]:
+def text_from_tokens(
+    sentences: List[List[str]], pos_lists: List[List[str]]
+) -> Tuple[str, List[List[Tuple[int, int]]]]:
     text = ""
     token_list = []
     for sent_tokens, sent_pos in zip(sentences, pos_lists):
@@ -95,7 +101,15 @@ def text_from_tokens(sentences: List[List[str]], pos_lists: List[List[str]]) -> 
             add_whitespace = 1
         else:
             add_whitespace = 0
-        sent_token_spec = [tuple([span[0] + len(text) + add_whitespace, span[1] + len(text) + add_whitespace]) for span in sent_token_spec]
+        sent_token_spec = [
+            tuple(
+                [
+                    span[0] + len(text) + add_whitespace,
+                    span[1] + len(text) + add_whitespace,
+                ]
+            )
+            for span in sent_token_spec
+        ]
         token_list.append(sent_token_spec)
         text += (" " * add_whitespace) + sentence
     return text, token_list
@@ -126,7 +140,9 @@ def read_salsa():
                     "id": frame.attrib["id"],
                     "name": frame.attrib["name"],
                     "targets": targets_out,
-                    "entities": [parse_entity(entity, frame, graph) for entity in entities],
+                    "entities": [
+                        parse_entity(entity, frame, graph) for entity in entities
+                    ],
                 }
             )
     return sentences_salsa, frames_per_sent
@@ -134,7 +150,10 @@ def read_salsa():
 
 def read_tiger():
     parser = etree.XMLParser(ns_clean=True, encoding="iso-8859-1")
-    tiger_tree = etree.parse(open("tiger_release_aug07.corrected.16012013.xml", encoding="iso-8859-1"), parser)
+    tiger_tree = etree.parse(
+        open("tiger_release_aug07.corrected.16012013.xml", encoding="iso-8859-1"),
+        parser,
+    )
     sentences_iterator = tiger_tree.iterfind(".//body/s")
     sentences_tiger = {}
     for sentence in sentences_iterator:
@@ -158,38 +177,52 @@ def get_sent_doc_mapping():
     return sent_doc_mapping
 
 
-sentences_salsa, frames_per_sent = read_salsa()
-frames_file = open("frames.jsonlines", "w")
-lemma_to_frame = defaultdict(set)
-for frame in itertools.chain.from_iterable(frames_per_sent.values()):
-    for target in frame["targets"]:
-        lemma_to_frame[target["lemma"]].add(frame["name"])
-    frames_file.write(json.dumps(frame))
-    frames_file.write("\n")
+def merge_frames(frames_per_sent: List[List[Dict]], tokens_per_sent: List[List[Tuple[int, int]]]):
+    """
+    Merge the sentence level frame list into one, updating the refs.
+    """
+    ref_offset = 0
+    all_frames = []
+    for frames, tokens in zip(frames_per_sent, tokens_per_sent):
+        for frame in frames:
+            for target in frame["targets"]:
+                target["refs"] = [ref + ref_offset for ref in target["refs"]]
+            for entity in frame["entities"]:
+                entity["refs"] = [ref + ref_offset for ref in entity["refs"]]
+            all_frames.append(frame)
+        ref_offset += len(tokens)
+    return all_frames
 
-sent_doc_mapping = get_sent_doc_mapping()
-sentences_tiger = read_tiger()
 
-# for salsa_id, salsa_sent in sentences_salsa.items():
-#     assert salsa_sent == sentences_tiger[salsa_id]
-#     if salsa_sent != sentences_tiger[salsa_id]:
-#         print(salsa_sent, sentences_tiger[salsa_id])
+def main():
+    sentences_salsa, frames_per_sent = read_salsa()
+    sent_doc_mapping = get_sent_doc_mapping()
+    sentences_tiger = read_tiger()
 
-documents = defaultdict(list)
-document_frames = defaultdict(list)
-for id_, sentence in sentences_tiger.items():
-    documents[sent_doc_mapping[int(id_)]].append(sentence)
-    document_frames[sent_doc_mapping[int(id_)]].append(frames_per_sent[id_])
+    documents = defaultdict(list)
+    document_frames = defaultdict(list)
+    for id_, sentence in sentences_tiger.items():
+        documents[sent_doc_mapping[int(id_)]].append(sentence)
+        document_frames[sent_doc_mapping[int(id_)]].append(frames_per_sent[id_])
 
-out_file = open("out.jsonlines", "w")
-for id_, doc in documents.items():
-    sentence_tokens, sentence_pos = zip(*doc)
-    text, token_spec = text_from_tokens(sentence_tokens, sentence_pos)
-    data = {
-        "id": id_,
-        "text": text,
-        "tokens": token_spec,
-        "frames_per_sentence": document_frames[id_],
-    }
-    out_file.write(json.dumps(data))
-    out_file.write("\n")
+    out_file = open("frames.jsonlines", "w")
+    for id_, doc in documents.items():
+        sentence_tokens: List[List[str]]
+        sentence_pos: List[List[str]]
+        sentence_tokens, sentence_pos = zip(*doc) # type: ignore
+        text, token_spec = text_from_tokens(sentence_tokens, sentence_pos)
+        data = {
+            "id": id_,
+            "text": text,
+            "tokens": list(itertools.chain.from_iterable(token_spec)),
+            "frames": merge_frames(document_frames[id_], token_spec),
+            "sentences": [(sent[0][0], sent[-1][1]) for sent in token_spec]
+        }
+        out_file.write(json.dumps(data))
+        out_file.write("\n")
+    out_file.flush()
+    out_file.close()
+
+
+if __name__ == "__main__":
+    main()
