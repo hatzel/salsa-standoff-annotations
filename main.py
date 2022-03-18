@@ -1,8 +1,9 @@
-from lxml import etree
 import itertools
-from collections import defaultdict
-from typing import Set, Tuple, List, Dict
 import json
+from collections import defaultdict
+from typing import Dict, List, Set, Tuple
+
+from lxml import etree
 
 
 def recurse_to_terminals(full_ids, graph, terminals=None) -> Set[int]:
@@ -177,7 +178,9 @@ def get_sent_doc_mapping():
     return sent_doc_mapping
 
 
-def merge_frames(frames_per_sent: List[List[Dict]], tokens_per_sent: List[List[Tuple[int, int]]]):
+def merge_frames(
+    frames_per_sent: List[List[Dict]], tokens_per_sent: List[List[Tuple[int, int]]]
+):
     """
     Merge the sentence level frame list into one, updating the refs.
     """
@@ -209,14 +212,14 @@ def main():
     for id_, doc in documents.items():
         sentence_tokens: List[List[str]]
         sentence_pos: List[List[str]]
-        sentence_tokens, sentence_pos = zip(*doc) # type: ignore
+        sentence_tokens, sentence_pos = zip(*doc)  # type: ignore
         text, token_spec = text_from_tokens(sentence_tokens, sentence_pos)
         data = {
             "id": id_,
             "text": text,
             "tokens": list(itertools.chain.from_iterable(token_spec)),
             "frames": merge_frames(document_frames[id_], token_spec),
-            "sentences": [(sent[0][0], sent[-1][1]) for sent in token_spec]
+            "sentences": [(sent[0][0], sent[-1][1]) for sent in token_spec],
         }
         out_file.write(json.dumps(data))
         out_file.write("\n")
