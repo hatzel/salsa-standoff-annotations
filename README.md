@@ -34,6 +34,7 @@ Each document is represent as JSON with the following fields:
         * `lemma`: the base form of the target word
         * `refs`: list of indexes into `tokens` specifying which characters are covered by the annotation
 - `tokens`: list of tokens with their individual character offsets in `text`
+- `pos`: list of the part-of-speech tag for each token in `tokens`
 - `sentences`: list of sentences with their individual character offsets in `text`
 
 

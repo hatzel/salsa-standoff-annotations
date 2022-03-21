@@ -220,6 +220,7 @@ def main():
             "tokens": list(itertools.chain.from_iterable(token_spec)),
             "frames": merge_frames(document_frames[id_], token_spec),
             "sentences": [(sent[0][0], sent[-1][1]) for sent in token_spec],
+            "pos": list(itertools.chain.from_iterable(sentence_pos))
         }
         out_file.write(json.dumps(data))
         out_file.write("\n")
